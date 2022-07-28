@@ -338,7 +338,7 @@ def cli_argparser():
     run_parser.add_argument(
         "--separate-stdout",
         help="Whether to save stdout output from notebook in a different file (default: False)",
-        default=False,
+        action="store_true",
     )
     run_parser.set_defaults(func=run_notebook)
 
@@ -431,10 +431,10 @@ def cli_argparser():
     schedule_parser.add_argument(
         "--event", help="Event that will trigger the notebook run"
     )
-    run_parser.add_argument(
+    schedule_parser.add_argument(
         "--separate-stdout",
         help="Whether to save stdout output from notebook in a different file (default: False)",
-        default=False,
+        action="store_true",
     )
     schedule_parser.set_defaults(func=schedule)
 

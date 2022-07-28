@@ -168,21 +168,12 @@ def execute_notebook(
             },
         ],
         "ProcessingOutputConfig": {
-            # TODO: add stdout file also to the output
             "Outputs": [
                 {
                     "OutputName": "result",
                     "S3Output": {
                         "S3Uri": output_prefix,
                         "LocalPath": local_output,
-                        "S3UploadMode": "EndOfJob",
-                    },
-                },
-                {
-                    "OutputName": "stdout",
-                    "S3Output": {
-                        "S3Uri": output_prefix,
-                        "LocalPath": local_stdout_file,
                         "S3UploadMode": "EndOfJob",
                     },
                 },
@@ -209,7 +200,18 @@ def execute_notebook(
 
     api_args["Environment"]["PAPERMILL_INPUT"] = local_input
     api_args["Environment"]["PAPERMILL_OUTPUT"] = local_output + result
-    api_args["Environment"]["PAPERMILL_STDOUT_FILE"] = local_stdout_file
+
+    if local_stdout_file:
+        api_args["ProcessingOutputConfig"]["Outputs"].append( {
+                    "OutputName": "stdout",
+                    "S3Output": {
+                        "S3Uri": output_prefix,
+                        "LocalPath": local_stdout_file,
+                        "S3UploadMode": "EndOfJob",
+                    },
+                })
+        api_args["Environment"]["PAPERMILL_STDOUT_FILE"] = local_stdout_file
+
     if os.environ.get("AWS_DEFAULT_REGION") != None:
         api_args["Environment"]["AWS_DEFAULT_REGION"] = os.environ["AWS_DEFAULT_REGION"]
     api_args["Environment"]["PAPERMILL_PARAMS"] = json.dumps(parameters)
@@ -440,6 +442,12 @@ def describe_run(job_name, session=None):
         ]
         notebook_name = os.path.basename(desc["Environment"]["PAPERMILL_OUTPUT"])
         result = "{}/{}".format(output_prefix, notebook_name)
+        local_stdout_file = desc["Environment"]["PAPERMILL_STDOUT_FILE"]
+
+        if local_stdout_file:
+            stdout_file_name = os.path.basename(local_stdout_file)
+            stdout_file = "{}/{}".format(output_prefix, stdout_file_name)
+
     else:
         result = None
 
@@ -463,6 +471,10 @@ def describe_run(job_name, session=None):
         elapsed = d["End"] - d["Start"]
     d["Elapsed"] = elapsed
     d["Result"] = result
+
+    if stdout_file:
+        d["Stdout"] = stdout_file
+
     d["Input"] = desc["ProcessingInputs"][0]["S3Input"]["S3Uri"]
     d["Image"] = abbreviate_image(desc["AppSpecification"]["ImageUri"])
     d["Instance"] = desc["ProcessingResources"]["ClusterConfig"]["InstanceType"]
