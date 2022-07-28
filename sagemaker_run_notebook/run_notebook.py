@@ -118,6 +118,7 @@ def execute_notebook(
     role=None,
     instance_type,
     session,
+    separate_stdout=False,
 ):
     session = ensure_session(session)
 
@@ -149,6 +150,10 @@ def execute_notebook(
     result = "{}-{}{}".format(nb_name, timestamp, nb_ext)
     local_output = "/opt/ml/processing/output/"
 
+    local_stdout_file = None
+    if separate_stdout:
+        local_stdout_file = local_output + "{}-{}.stdout".format(nb_name, timestamp)
+
     api_args = {
         "ProcessingInputs": [
             {
@@ -163,12 +168,21 @@ def execute_notebook(
             },
         ],
         "ProcessingOutputConfig": {
+            # TODO: add stdout file also to the output
             "Outputs": [
                 {
                     "OutputName": "result",
                     "S3Output": {
                         "S3Uri": output_prefix,
                         "LocalPath": local_output,
+                        "S3UploadMode": "EndOfJob",
+                    },
+                },
+                {
+                    "OutputName": "stdout",
+                    "S3Output": {
+                        "S3Uri": output_prefix,
+                        "LocalPath": local_stdout_file,
                         "S3UploadMode": "EndOfJob",
                     },
                 },
@@ -195,6 +209,7 @@ def execute_notebook(
 
     api_args["Environment"]["PAPERMILL_INPUT"] = local_input
     api_args["Environment"]["PAPERMILL_OUTPUT"] = local_output + result
+    api_args["Environment"]["PAPERMILL_STDOUT_FILE"] = local_stdout_file
     if os.environ.get("AWS_DEFAULT_REGION") != None:
         api_args["Environment"]["AWS_DEFAULT_REGION"] = os.environ["AWS_DEFAULT_REGION"]
     api_args["Environment"]["PAPERMILL_PARAMS"] = json.dumps(parameters)
@@ -259,7 +274,7 @@ def download_notebook(job_name, output=".", session=None):
 
     prefix = desc["ProcessingOutputConfig"]["Outputs"][0]["S3Output"]["S3Uri"]
     notebook = os.path.basename(desc["Environment"]["PAPERMILL_OUTPUT"])
-    s3path = "{}/{}".format(prefix, notebook)
+    notebook_s3path = "{}/{}".format(prefix, notebook)
 
     if not os.path.exists(output):
         try:
@@ -268,8 +283,16 @@ def download_notebook(job_name, output=".", session=None):
             if e.errno != errno.EEXIST:
                 raise
 
-    p1 = Popen(split("aws s3 cp --no-progress {} {}/".format(s3path, output)))
+    p1 = Popen(split("aws s3 cp --no-progress {} {}/".format(notebook_s3path, output)))
     p1.wait()
+
+    # download stdout file
+    stdout_file = os.path.basename(desc["Environment"]["PAPERMILL_STDOUT_FILE"])
+    if stdout_file:
+        notebook_stdout_file = "{}/{}".format(prefix, stdout_file)
+        p2 = Popen(split("aws s3 cp --no-progress {} {}/".format(notebook_stdout_file, output)))
+        p2.wait()
+
     return "{}/{}".format(output.rstrip("/"), notebook)
 
 
@@ -282,6 +305,7 @@ def run_notebook(
     output_prefix=None,
     output=".",
     session=None,
+    separate_stdout=False,
 ):
     """Run a notebook in SageMaker Processing producing a new output notebook.
 
@@ -295,6 +319,7 @@ def run_notebook(
                              (default: determined based on SageMaker Python SDK)
         output (str): The directory to copy the output file to (default: the current working directory).
         session (boto3.Session): The boto3 session to use. Will create a default session if not supplied (default: None).
+        separate_stdout: Whether stdout output should go to a separate file.
 
     Returns:
         A tuple with the processing job name, the job status, the failure reason (or None) and the the path to
@@ -313,6 +338,7 @@ def run_notebook(
         role=role,
         instance_type=instance_type,
         session=session,
+        separate_stdout=separate_stdout,
     )
     print("Job {} started".format(job_name))
     status, failure_reason = wait_for_complete(job_name)
@@ -368,6 +394,7 @@ def describe_runs(n=0, notebook=None, rule=None, session=None):
                     return
 
 
+# TODO: add STDOUT
 def describe_run(job_name, session=None):
     """Describe a particular notebook run.
 
@@ -737,6 +764,7 @@ def invoke(
     instance_type="ml.m5.large",
     extra_fns=[],
     session=None,
+    separate_stdout=False,
 ):
     """Run a notebook in SageMaker Processing producing a new output notebook.
 
@@ -771,6 +799,7 @@ def invoke(
         instance_type (str): The SageMaker instance to use for executing the job (default: ml.m5.large).
         extra_fns (list of functions): The list of functions to amend the extra arguments for the processing job.
         session (boto3.Session): The boto3 session to use. Will create a default session if not supplied (default: None).
+        separate_stdout: If true, writes stdout output from notebook in a separate file
 
     Returns:
         The name of the processing job created to run the notebook.
@@ -810,6 +839,7 @@ def invoke(
         "role": role,
         "instance_type": instance_type,
         "extra_args": extra_args,
+        "separate_stdout": separate_stdout,
     }
 
     client = session.client("lambda")
@@ -844,6 +874,7 @@ def schedule(
     instance_type="ml.m5.large",
     extra_fns=[],
     session=None,
+    separate_stdout=False,
 ):
     """Create a schedule for running a notebook in SageMaker Processing.
 
@@ -888,6 +919,7 @@ def schedule(
         instance_type (str): The SageMaker instance to use for executing the job (default: ml.m5.large).
         extra_fns (list of functions): The list of functions to amend the extra arguments for the processing job.
         session (boto3.Session): The boto3 session to use. Will create a default session if not supplied (default: None).
+        separate_stdout: If true, writes stdout output from notebook in a separate file
     """
     kwargs = {}
     if schedule != None:
@@ -936,6 +968,7 @@ def schedule(
         "instance_type": instance_type,
         "extra_args": extra_args,
         "rule_name": rule_name,
+        "separate_stdout": separate_stdout,
     }
 
     events = boto3.client("events")
@@ -1036,7 +1069,8 @@ def describe_schedule(rule_name, rule_item=None, session=None):
         'role': 'BasicExecuteNotebookRole-us-west-2',
         'state': 'ENABLED',
         'input_path': 's3://sagemaker-us-west-2-123456789012/papermill_input/notebook-2020-11-02-19-49-24.ipynb',
-        'output_prefix': 's3://sagemaker-us-west-2-123456789012/papermill_output'}
+        'output_prefix': 's3://sagemaker-us-west-2-123456789012/papermill_output'},
+        'separate_stdout': False}
     """
     rule_name = RULE_PREFIX + rule_name
     session = ensure_session(session)
@@ -1065,6 +1099,7 @@ def describe_schedule(rule_name, rule_item=None, session=None):
         state=rule_item["State"],
         input_path=inp.get("input_path", ""),
         output_prefix=inp.get("output_prefix", ""),
+        separate_stdout=inp.get("separate_stdout", False),
     )
 
     return d

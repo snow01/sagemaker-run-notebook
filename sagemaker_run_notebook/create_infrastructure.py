@@ -17,10 +17,17 @@ import time
 
 import botocore.exceptions
 import boto3
+import python_minifier
 
 cfn_template_file = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "cloudformation.yml"
 )
+
+lambda_fn_file = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "lambda_function.py"
+)
+
+yaml_indent_space = '          '
 
 
 def ensure_session(session=None):
@@ -49,9 +56,18 @@ def wait_for_infrastructure(stack_id, progress=True, sleep_time=10, session=None
     return status, desc.get("StackStatusReason")
 
 
-def create_infrastructure(session=None, update=False, wait=True):
-    with open(cfn_template_file, mode="r") as f:
+def create_infrastructure(session=None, update=False, wait=True, template=None):
+
+    with open(template or cfn_template_file, mode="r") as f:
         cfn_template = f.read()
+
+    if template:
+        # adding minified lambda function in code, so we can override default cloudformation template
+        with open(lambda_fn_file, mode="r") as f:
+            lambda_fn = python_minifier.minify(f.read())
+
+        cfn_template = cfn_template + yaml_indent_space + yaml_indent_space.join(lambda_fn.splitlines(True))
+
     session = ensure_session(session)
     client = session.client("cloudformation")
 

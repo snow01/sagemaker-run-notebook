@@ -32,13 +32,14 @@ import papermill
 input_var = "PAPERMILL_INPUT"
 output_var = "PAPERMILL_OUTPUT"
 params_var = "PAPERMILL_PARAMS"
-
+stdout_file_var = "PAPERMILL_STDOUT_FILE"
 
 def run_notebook():
     try:
         notebook = os.environ[input_var]
         output_notebook = os.environ[output_var]
         params = json.loads(os.environ[params_var])
+        stdout_file = os.environ[stdout_file_var]
 
         notebook_dir = os.path.dirname(notebook)
         notebook_file = os.path.basename(notebook)
@@ -85,6 +86,7 @@ def run_notebook():
             notebook_file,
             output_notebook,
             params,
+            stdout_file=stdout_file,
             **arg_map,
         )
         print("Execution complete")

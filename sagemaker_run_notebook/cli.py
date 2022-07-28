@@ -88,6 +88,7 @@ def run_notebook(args):
             role=args.role,
             instance_type=args.instance,
             extra_fns=extra_fns,
+            separate_stdout=args.separate_stdout,
         )
     except run.InvokeException as ie:
         print(f"Error starting run: {str(ie)}")
@@ -226,6 +227,7 @@ def schedule(args):
         role=args.role,
         instance_type=args.instance,
         extra_fns=extra_fns,
+        separate_stdout=args.separate_stdout,
     )
 
 
@@ -257,7 +259,7 @@ def list_rules(args):
 
 
 def create_infrastructure(args):
-    infra.create_infrastructure(update=args.update)
+    infra.create_infrastructure(update=args.update, template=args.template)
 
 
 def create_container(args):
@@ -332,6 +334,11 @@ def cli_argparser():
         "--no-wait",
         help="Launch the notebook run but don't wait for it to complete",
         action="store_true",
+    )
+    run_parser.add_argument(
+        "--separate-stdout",
+        help="Whether to save stdout output from notebook in a different file (default: False)",
+        default=False,
     )
     run_parser.set_defaults(func=run_notebook)
 
@@ -424,6 +431,11 @@ def cli_argparser():
     schedule_parser.add_argument(
         "--event", help="Event that will trigger the notebook run"
     )
+    run_parser.add_argument(
+        "--separate-stdout",
+        help="Whether to save stdout output from notebook in a different file (default: False)",
+        default=False,
+    )
     schedule_parser.set_defaults(func=schedule)
 
     unschedule_parser = subparsers.add_parser(
@@ -481,6 +493,10 @@ def cli_argparser():
         "--update",
         help="Add this flag to update an existing stack",
         action="store_true",
+    )
+    createinfra_parser.add_argument(
+        "--template",
+        help="Cloudformation Template (default: cloudformation.yml)",
     )
     createinfra_parser.set_defaults(func=create_infrastructure)
 
