@@ -150,10 +150,6 @@ def execute_notebook(
     result = "{}-{}{}".format(nb_name, timestamp, nb_ext)
     local_output = "/opt/ml/processing/output/"
 
-    local_stdout_file = None
-    if separate_stdout:
-        local_stdout_file = local_output + "{}-{}.stdout".format(nb_name, timestamp)
-
     api_args = {
         "ProcessingInputs": [
             {
@@ -200,9 +196,15 @@ def execute_notebook(
 
     api_args["Environment"]["PAPERMILL_INPUT"] = local_input
     api_args["Environment"]["PAPERMILL_OUTPUT"] = local_output + result
+    if os.environ.get("AWS_DEFAULT_REGION") != None:
+        api_args["Environment"]["AWS_DEFAULT_REGION"] = os.environ["AWS_DEFAULT_REGION"]
+    api_args["Environment"]["PAPERMILL_PARAMS"] = json.dumps(parameters)
+    api_args["Environment"]["PAPERMILL_NOTEBOOK_NAME"] = notebook
 
-    if local_stdout_file:
-        api_args["ProcessingOutputConfig"]["Outputs"].append( {
+    if separate_stdout:
+        local_stdout_file = local_output + "{}-{}.stdout".format(nb_name, timestamp)
+        print("Local stdout file", local_stdout_file)
+        api_args["ProcessingOutputConfig"]["Outputs"].append({
                     "OutputName": "stdout",
                     "S3Output": {
                         "S3Uri": output_prefix,
@@ -212,10 +214,7 @@ def execute_notebook(
                 })
         api_args["Environment"]["PAPERMILL_STDOUT_FILE"] = local_stdout_file
 
-    if os.environ.get("AWS_DEFAULT_REGION") != None:
-        api_args["Environment"]["AWS_DEFAULT_REGION"] = os.environ["AWS_DEFAULT_REGION"]
-    api_args["Environment"]["PAPERMILL_PARAMS"] = json.dumps(parameters)
-    api_args["Environment"]["PAPERMILL_NOTEBOOK_NAME"] = notebook
+    print("API Args", api_args)
 
     client = boto3.client("sagemaker")
     result = client.create_processing_job(**api_args)
@@ -289,8 +288,8 @@ def download_notebook(job_name, output=".", session=None):
     p1.wait()
 
     # download stdout file
-    stdout_file = os.path.basename(desc["Environment"]["PAPERMILL_STDOUT_FILE"])
-    if stdout_file:
+    if "PAPERMILL_STDOUT_FILE" in desc["Environment"]:
+        stdout_file = os.path.basename(desc["Environment"]["PAPERMILL_STDOUT_FILE"])
         notebook_stdout_file = "{}/{}".format(prefix, stdout_file)
         p2 = Popen(split("aws s3 cp --no-progress {} {}/".format(notebook_stdout_file, output)))
         p2.wait()
@@ -435,6 +434,8 @@ def describe_run(job_name, session=None):
             else:
                 raise e
 
+    stdout_file = None
+
     status = desc["ProcessingJobStatus"]
     if status == "Completed":
         output_prefix = desc["ProcessingOutputConfig"]["Outputs"][0]["S3Output"][
@@ -442,8 +443,8 @@ def describe_run(job_name, session=None):
         ]
         notebook_name = os.path.basename(desc["Environment"]["PAPERMILL_OUTPUT"])
         result = "{}/{}".format(output_prefix, notebook_name)
-        local_stdout_file = desc["Environment"]["PAPERMILL_STDOUT_FILE"]
 
+        local_stdout_file = desc["Environment"].get("PAPERMILL_STDOUT_FILE")
         if local_stdout_file:
             stdout_file_name = os.path.basename(local_stdout_file)
             stdout_file = "{}/{}".format(output_prefix, stdout_file_name)
@@ -853,6 +854,8 @@ def invoke(
         "extra_args": extra_args,
         "separate_stdout": separate_stdout,
     }
+
+    print("Args", args)
 
     client = session.client("lambda")
 

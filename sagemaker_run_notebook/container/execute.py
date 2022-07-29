@@ -36,10 +36,14 @@ stdout_file_var = "PAPERMILL_STDOUT_FILE"
 
 def run_notebook():
     try:
+        print("Environ", os.environ)
+
         notebook = os.environ[input_var]
         output_notebook = os.environ[output_var]
         params = json.loads(os.environ[params_var])
-        stdout_file = os.environ[stdout_file_var]
+        stdout_file = None
+        if stdout_file_var in os.environ:
+            stdout_file = os.environ[stdout_file_var]
 
         notebook_dir = os.path.dirname(notebook)
         notebook_file = os.path.basename(notebook)

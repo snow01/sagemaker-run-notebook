@@ -17,6 +17,7 @@ def execute_notebook(
     instance_type,
     rule_name,
     extra_args,
+    separate_stdout,
 ):
     session = ensure_session()
     region = session.region_name
@@ -110,6 +111,19 @@ def execute_notebook(
     if rule_name is not None:
         api_args["Environment"]["AWS_EVENTBRIDGE_RULE"] = rule_name
 
+    if separate_stdout:
+        local_stdout_file = local_output + "{}-{}.stdout".format(nb_name, timestamp)
+        print("Local stdout file", local_stdout_file)
+        api_args["ProcessingOutputConfig"]["Outputs"].append({
+                    "OutputName": "stdout",
+                    "S3Output": {
+                        "S3Uri": output_prefix,
+                        "LocalPath": local_stdout_file,
+                        "S3UploadMode": "EndOfJob",
+                    },
+                })
+        api_args["Environment"]["PAPERMILL_STDOUT_FILE"] = local_stdout_file
+
     client = boto3.client("sagemaker")
     result = client.create_processing_job(**api_args)
     job_arn = result["ProcessingJobArn"]
@@ -161,5 +175,6 @@ def lambda_handler(event, context):
         instance_type=event.get("instance_type", "ml.m5.large"),
         rule_name=event.get("rule_name"),
         extra_args=event.get("extra_args"),
+        separate_stdout=event.get("separate_stdout")
     )
     return {"job_name": job}
